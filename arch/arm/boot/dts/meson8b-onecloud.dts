@@ -433,9 +433,7 @@
 
 &usb0 {
 	status = "okay";
-	dr_mode = "otg";
-	usb-role-switch;
-	role-switch-default-mode = "host";
+	dr_mode = "host";
 };
 
 &usb0_phy {

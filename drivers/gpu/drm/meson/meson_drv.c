@@ -568,8 +568,13 @@ unbind_all:
 	if (has_components)
 		component_unbind_all(drm->dev, drm);
 exit_afbcd:
-	if (priv->afbcd.ops)
-		priv->afbcd.ops->exit(priv);
+	// if (priv->afbcd.ops)
+		// priv->afbcd.ops->exit(priv);
+	if (priv->afbcd.ops) {
+		priv->afbcd.ops->reset(priv);
+		meson_rdma_free(priv);
+	}
+	meson_video_clock_exit(priv);
 free_drm:
 	drm_dev_put(drm);
 

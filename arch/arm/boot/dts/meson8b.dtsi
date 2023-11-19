@@ -298,7 +298,7 @@
 			clocks = <&clkc CLKID_CLK81>, <&clkc CLKID_MALI>;
 			clock-names = "bus", "core";
 			operating-points-v2 = <&gpu_opp_table>;
-			/* #cooling-cells = <2>;  min followed by max */
+			#cooling-cells = <2>; /* min followed by max */
 		};
 
 		hdmi_tx: hdmi-tx@42000 {

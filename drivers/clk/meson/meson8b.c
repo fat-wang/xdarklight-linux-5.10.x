@@ -18,7 +18,6 @@
 
 #include "meson8b.h"
 #include "clk-regmap.h"
-#include "clk-phase.h"
 #include "clk-pll.h"
 #include "clk-mpll.h"
 
@@ -51,6 +50,15 @@ static const struct pll_params_table sys_pll_params_table[] = {
 	PLL_PARAMS(68, 1),
 	PLL_PARAMS(84, 1),
 	{ /* sentinel */ },
+};
+
+static struct clk_fixed_rate meson8b_xtal = {
+	.fixed_rate = 24000000,
+	.hw.init = &(struct clk_init_data){
+		.name = "xtal",
+		.num_parents = 0,
+		.ops = &clk_fixed_rate_ops,
+	},
 };
 
 static struct clk_regmap meson8b_fixed_pll_dco = {
@@ -119,43 +127,6 @@ static struct clk_regmap meson8b_fixed_pll = {
 	},
 };
 
-/*
- * Taken from the vendor driver for the 2970/2975MHz (both only differ in the
- * FRAC part in HHI_VID_PLL_CNTL2) where these values are identical for Meson8,
- * Meson8b and Meson8m2. This doubles the input (or output - it's not clear
- * which one but the result is the same) clock. The vendor driver additionally
- * has the following comment about: "optimise HPLL VCO 2.97GHz performance".
- */
-static const struct reg_sequence meson8b_hdmi_pll_init_regs[] = {
-	{ .reg = HHI_VID_PLL_CNTL2,	.def = 0x59c88000 },
-	{ .reg = HHI_VID_PLL_CNTL3,	.def = 0xca49b022 },
-	{ .reg = HHI_VID_PLL_CNTL4,	.def = 0x0023b100 },
-	{ .reg = HHI_VID_PLL_CNTL5,	.def = 0x00016385 },
-	{ .reg = HHI_VID2_PLL_CNTL2,	.def = 0x0430a800 },
-};
-
-static const struct pll_params_table hdmi_pll_params_table[] = {
-	PLL_PARAMS(34, 1),
-	PLL_PARAMS(40, 1),
-	PLL_PARAMS(42, 1),
-	PLL_PARAMS(44, 1),
-	PLL_PARAMS(45, 1),
-	PLL_PARAMS(49, 1),
-	PLL_PARAMS(52, 1),
-	PLL_PARAMS(54, 1),
-	PLL_PARAMS(56, 1),
-	PLL_PARAMS(59, 1),
-	PLL_PARAMS(60, 1),
-	PLL_PARAMS(61, 1),
-	PLL_PARAMS(62, 1),
-	PLL_PARAMS(64, 1),
-	PLL_PARAMS(66, 1),
-	PLL_PARAMS(68, 1),
-	PLL_PARAMS(71, 1),
-	PLL_PARAMS(82, 1),
-	{ /* sentinel */ }
-};
-
 static struct clk_regmap meson8b_hdmi_pll_dco = {
 	.data = &(struct meson_clk_pll_data){
 		.en = {
@@ -188,14 +159,11 @@ static struct clk_regmap meson8b_hdmi_pll_dco = {
 			.shift   = 29,
 			.width   = 1,
 		},
-		.table = hdmi_pll_params_table,
-		.init_regs = meson8b_hdmi_pll_init_regs,
-		.init_count = ARRAY_SIZE(meson8b_hdmi_pll_init_regs),
 	},
 	.hw.init = &(struct clk_init_data){
 		/* sometimes also called "HPLL" or "HPLL PLL" */
 		.name = "hdmi_pll_dco",
-		.ops = &meson_clk_pll_ops,
+		.ops = &meson_clk_pll_ro_ops,
 		.parent_data = &(const struct clk_parent_data) {
 			.fw_name = "xtal",
 			.name = "xtal",
@@ -214,11 +182,12 @@ static struct clk_regmap meson8b_hdmi_pll_lvds_out = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "hdmi_pll_lvds_out",
-		.ops = &clk_regmap_divider_ops,
+		.ops = &clk_regmap_divider_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_hdmi_pll_dco.hw
 		},
 		.num_parents = 1,
+		.flags = CLK_SET_RATE_PARENT,
 	},
 };
 
@@ -231,11 +200,12 @@ static struct clk_regmap meson8b_hdmi_pll_hdmi_out = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "hdmi_pll_hdmi_out",
-		.ops = &clk_regmap_divider_ops,
+		.ops = &clk_regmap_divider_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_hdmi_pll_dco.hw
 		},
 		.num_parents = 1,
+		.flags = CLK_SET_RATE_PARENT,
 	},
 };
 
@@ -1084,23 +1054,6 @@ static struct clk_regmap meson8b_l2_dram_clk_gate = {
 	},
 };
 
-/* also called LVDS_CLK_EN */
-static struct clk_regmap meson8b_vid_pll_lvds_en = {
-	.data = &(struct clk_regmap_gate_data){
-		.offset = HHI_VID_DIVIDER_CNTL,
-		.bit_idx = 11,
-	},
-	.hw.init = &(struct clk_init_data){
-		.name = "vid_pll_lvds_en",
-		.ops = &clk_regmap_gate_ops,
-		.parent_hws = (const struct clk_hw *[]) {
-			&meson8b_hdmi_pll_lvds_out.hw
-		},
-		.num_parents = 1,
-		.flags = CLK_SET_RATE_PARENT,
-	},
-};
-
 static struct clk_regmap meson8b_vid_pll_in_sel = {
 	.data = &(struct clk_regmap_mux_data){
 		.offset = HHI_VID_DIVIDER_CNTL,
@@ -1109,7 +1062,7 @@ static struct clk_regmap meson8b_vid_pll_in_sel = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vid_pll_in_sel",
-		.ops = &clk_regmap_mux_ops,
+		.ops = &clk_regmap_mux_ro_ops,
 		/*
 		 * TODO: depending on the SoC there is also a second parent:
 		 * Meson8: unknown
@@ -1117,9 +1070,10 @@ static struct clk_regmap meson8b_vid_pll_in_sel = {
 		 * Meson8m2: vid2_pll
 		 */
 		.parent_hws = (const struct clk_hw *[]) {
-			&meson8b_vid_pll_lvds_en.hw
+			&meson8b_hdmi_pll_lvds_out.hw
 		},
 		.num_parents = 1,
+		.flags = CLK_SET_RATE_PARENT,
 	},
 };
 
@@ -1130,7 +1084,7 @@ static struct clk_regmap meson8b_vid_pll_in_en = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vid_pll_in_en",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vid_pll_in_sel.hw
 		},
@@ -1139,23 +1093,15 @@ static struct clk_regmap meson8b_vid_pll_in_en = {
 	},
 };
 
-static const struct clk_div_table vid_pll_pre_div_table[] = {
-	{ .val = 0, .div = 1 },
-	{ .val = 4, .div = 5 },
-	{ .val = 5, .div = 6 },
-	{ /* sentinel */ }
-};
-
 static struct clk_regmap meson8b_vid_pll_pre_div = {
 	.data = &(struct clk_regmap_div_data){
 		.offset =  HHI_VID_DIVIDER_CNTL,
 		.shift = 4,
 		.width = 3,
-		.table = vid_pll_pre_div_table,
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vid_pll_pre_div",
-		.ops = &clk_regmap_divider_ops,
+		.ops = &clk_regmap_divider_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vid_pll_in_en.hw
 		},
@@ -1164,22 +1110,15 @@ static struct clk_regmap meson8b_vid_pll_pre_div = {
 	},
 };
 
-static const struct clk_div_table vid_pll_post_div_table[] = {
-	{ .val = 0, .div = 1 },
-	{ .val = 1, .div = 2 },
-	{ /* sentinel */ }
-};
-
 static struct clk_regmap meson8b_vid_pll_post_div = {
 	.data = &(struct clk_regmap_div_data){
 		.offset =  HHI_VID_DIVIDER_CNTL,
 		.shift = 12,
 		.width = 3,
-		.table = vid_pll_post_div_table,
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vid_pll_post_div",
-		.ops = &clk_regmap_divider_ops,
+		.ops = &clk_regmap_divider_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vid_pll_pre_div.hw
 		},
@@ -1196,7 +1135,7 @@ static struct clk_regmap meson8b_vid_pll = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vid_pll",
-		.ops = &clk_regmap_mux_ops,
+		.ops = &clk_regmap_mux_ro_ops,
 		/* TODO: parent 0x2 is vid_pll_pre_div_mult7_div2 */
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vid_pll_pre_div.hw,
@@ -1207,34 +1146,23 @@ static struct clk_regmap meson8b_vid_pll = {
 	},
 };
 
-static const struct clk_div_table meson8b_vid_pll_final_div_table[] = {
-	{ .val = 0, .div = 1 },
-	{ .val = 1, .div = 2 },
-	{ .val = 3, .div = 4 },
-	{ /* sentinel */ }
-};
-
 static struct clk_regmap meson8b_vid_pll_final_div = {
 	.data = &(struct clk_regmap_div_data){
 		.offset =  HHI_VID_CLK_DIV,
 		.shift = 0,
 		.width = 8,
-		.table = meson8b_vid_pll_final_div_table,
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vid_pll_final_div",
-		.ops = &clk_regmap_divider_ops,
+		.ops = &clk_regmap_divider_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vid_pll.hw
 		},
 		.num_parents = 1,
+		.flags = CLK_SET_RATE_PARENT,
 	},
 };
 
-/*
- * parent 0x6 is meson8b_mpll1 but we don't use it here because it's reserved
- * for the audio outputs.
- */
 static const struct clk_hw *meson8b_vclk_mux_parent_hws[] = {
 	&meson8b_vid_pll_final_div.hw,
 	&meson8b_fclk_div4.hw,
@@ -1242,6 +1170,7 @@ static const struct clk_hw *meson8b_vclk_mux_parent_hws[] = {
 	&meson8b_fclk_div5.hw,
 	&meson8b_vid_pll_final_div.hw,
 	&meson8b_fclk_div7.hw,
+	&meson8b_mpll1.hw,
 };
 
 static struct clk_regmap meson8b_vclk_in_sel = {
@@ -1252,7 +1181,7 @@ static struct clk_regmap meson8b_vclk_in_sel = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vclk_in_sel",
-		.ops = &clk_regmap_mux_ops,
+		.ops = &clk_regmap_mux_ro_ops,
 		.parent_hws = meson8b_vclk_mux_parent_hws,
 		.num_parents = ARRAY_SIZE(meson8b_vclk_mux_parent_hws),
 		.flags = CLK_SET_RATE_PARENT,
@@ -1266,7 +1195,7 @@ static struct clk_regmap meson8b_vclk_in_en = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vclk_in_en",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vclk_in_sel.hw
 		},
@@ -1282,7 +1211,7 @@ static struct clk_regmap meson8b_vclk_en = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vclk_en",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vclk_in_en.hw
 		},
@@ -1298,7 +1227,7 @@ static struct clk_regmap meson8b_vclk_div1_gate = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vclk_div1_en",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vclk_en.hw
 		},
@@ -1328,7 +1257,7 @@ static struct clk_regmap meson8b_vclk_div2_div_gate = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vclk_div2_en",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vclk_div2_div.hw
 		},
@@ -1358,7 +1287,7 @@ static struct clk_regmap meson8b_vclk_div4_div_gate = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vclk_div4_en",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vclk_div4_div.hw
 		},
@@ -1388,7 +1317,7 @@ static struct clk_regmap meson8b_vclk_div6_div_gate = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vclk_div6_en",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vclk_div6_div.hw
 		},
@@ -1418,7 +1347,7 @@ static struct clk_regmap meson8b_vclk_div12_div_gate = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vclk_div12_en",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vclk_div12_div.hw
 		},
@@ -1435,7 +1364,7 @@ static struct clk_regmap meson8b_vclk2_in_sel = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vclk2_in_sel",
-		.ops = &clk_regmap_mux_ops,
+		.ops = &clk_regmap_mux_ro_ops,
 		.parent_hws = meson8b_vclk_mux_parent_hws,
 		.num_parents = ARRAY_SIZE(meson8b_vclk_mux_parent_hws),
 		.flags = CLK_SET_RATE_PARENT,
@@ -1449,7 +1378,7 @@ static struct clk_regmap meson8b_vclk2_clk_in_en = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vclk2_in_en",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vclk2_in_sel.hw
 		},
@@ -1465,7 +1394,7 @@ static struct clk_regmap meson8b_vclk2_clk_en = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vclk2_en",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vclk2_clk_in_en.hw
 		},
@@ -1481,7 +1410,7 @@ static struct clk_regmap meson8b_vclk2_div1_gate = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vclk2_div1_en",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vclk2_clk_en.hw
 		},
@@ -1511,7 +1440,7 @@ static struct clk_regmap meson8b_vclk2_div2_div_gate = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vclk2_div2_en",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vclk2_div2_div.hw
 		},
@@ -1541,7 +1470,7 @@ static struct clk_regmap meson8b_vclk2_div4_div_gate = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vclk2_div4_en",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vclk2_div4_div.hw
 		},
@@ -1571,7 +1500,7 @@ static struct clk_regmap meson8b_vclk2_div6_div_gate = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vclk2_div6_en",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vclk2_div6_div.hw
 		},
@@ -1601,7 +1530,7 @@ static struct clk_regmap meson8b_vclk2_div12_div_gate = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "vclk2_div12_en",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_vclk2_div12_div.hw
 		},
@@ -1626,7 +1555,7 @@ static struct clk_regmap meson8b_cts_enct_sel = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "cts_enct_sel",
-		.ops = &clk_regmap_mux_ops,
+		.ops = &clk_regmap_mux_ro_ops,
 		.parent_hws = meson8b_vclk_enc_mux_parent_hws,
 		.num_parents = ARRAY_SIZE(meson8b_vclk_enc_mux_parent_hws),
 		.flags = CLK_SET_RATE_PARENT,
@@ -1640,12 +1569,12 @@ static struct clk_regmap meson8b_cts_enct = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "cts_enct",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_cts_enct_sel.hw
 		},
 		.num_parents = 1,
-		.flags = CLK_SET_RATE_PARENT | CLK_IS_CRITICAL,
+		.flags = CLK_SET_RATE_PARENT,
 	},
 };
 
@@ -1657,7 +1586,7 @@ static struct clk_regmap meson8b_cts_encp_sel = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "cts_encp_sel",
-		.ops = &clk_regmap_mux_ops,
+		.ops = &clk_regmap_mux_ro_ops,
 		.parent_hws = meson8b_vclk_enc_mux_parent_hws,
 		.num_parents = ARRAY_SIZE(meson8b_vclk_enc_mux_parent_hws),
 		.flags = CLK_SET_RATE_PARENT,
@@ -1671,12 +1600,12 @@ static struct clk_regmap meson8b_cts_encp = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "cts_encp",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_cts_encp_sel.hw
 		},
 		.num_parents = 1,
-		.flags = CLK_SET_RATE_PARENT | CLK_IS_CRITICAL,
+		.flags = CLK_SET_RATE_PARENT,
 	},
 };
 
@@ -1688,7 +1617,7 @@ static struct clk_regmap meson8b_cts_enci_sel = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "cts_enci_sel",
-		.ops = &clk_regmap_mux_ops,
+		.ops = &clk_regmap_mux_ro_ops,
 		.parent_hws = meson8b_vclk_enc_mux_parent_hws,
 		.num_parents = ARRAY_SIZE(meson8b_vclk_enc_mux_parent_hws),
 		.flags = CLK_SET_RATE_PARENT,
@@ -1702,12 +1631,12 @@ static struct clk_regmap meson8b_cts_enci = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "cts_enci",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_cts_enci_sel.hw
 		},
 		.num_parents = 1,
-		.flags = CLK_SET_RATE_PARENT | CLK_IS_CRITICAL,
+		.flags = CLK_SET_RATE_PARENT,
 	},
 };
 
@@ -1719,7 +1648,7 @@ static struct clk_regmap meson8b_hdmi_tx_pixel_sel = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "hdmi_tx_pixel_sel",
-		.ops = &clk_regmap_mux_ops,
+		.ops = &clk_regmap_mux_ro_ops,
 		.parent_hws = meson8b_vclk_enc_mux_parent_hws,
 		.num_parents = ARRAY_SIZE(meson8b_vclk_enc_mux_parent_hws),
 		.flags = CLK_SET_RATE_PARENT,
@@ -1733,12 +1662,12 @@ static struct clk_regmap meson8b_hdmi_tx_pixel = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "hdmi_tx_pixel",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_hdmi_tx_pixel_sel.hw
 		},
 		.num_parents = 1,
-		.flags = CLK_SET_RATE_PARENT | CLK_IS_CRITICAL,
+		.flags = CLK_SET_RATE_PARENT,
 	},
 };
 
@@ -1758,7 +1687,7 @@ static struct clk_regmap meson8b_cts_encl_sel = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "cts_encl_sel",
-		.ops = &clk_regmap_mux_ops,
+		.ops = &clk_regmap_mux_ro_ops,
 		.parent_hws = meson8b_vclk2_enc_mux_parent_hws,
 		.num_parents = ARRAY_SIZE(meson8b_vclk2_enc_mux_parent_hws),
 		.flags = CLK_SET_RATE_PARENT,
@@ -1772,12 +1701,12 @@ static struct clk_regmap meson8b_cts_encl = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "cts_encl",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_cts_encl_sel.hw
 		},
 		.num_parents = 1,
-		.flags = CLK_SET_RATE_PARENT | CLK_IS_CRITICAL,
+		.flags = CLK_SET_RATE_PARENT,
 	},
 };
 
@@ -1789,7 +1718,7 @@ static struct clk_regmap meson8b_cts_vdac0_sel = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "cts_vdac0_sel",
-		.ops = &clk_regmap_mux_ops,
+		.ops = &clk_regmap_mux_ro_ops,
 		.parent_hws = meson8b_vclk2_enc_mux_parent_hws,
 		.num_parents = ARRAY_SIZE(meson8b_vclk2_enc_mux_parent_hws),
 		.flags = CLK_SET_RATE_PARENT,
@@ -1803,12 +1732,12 @@ static struct clk_regmap meson8b_cts_vdac0 = {
 	},
 	.hw.init = &(struct clk_init_data){
 		.name = "cts_vdac0",
-		.ops = &clk_regmap_gate_ops,
+		.ops = &clk_regmap_gate_ro_ops,
 		.parent_hws = (const struct clk_hw *[]) {
 			&meson8b_cts_vdac0_sel.hw
 		},
 		.num_parents = 1,
-		.flags = CLK_SET_RATE_PARENT | CLK_IS_CRITICAL,
+		.flags = CLK_SET_RATE_PARENT,
 	},
 };
 
@@ -2690,78 +2619,6 @@ static struct clk_regmap meson8b_cts_i958 = {
 	},
 };
 
-static u32 meson8_eth_clk_mux_table[] = { 7 };
-
-static struct clk_regmap meson8_eth_clk_sel = {
-	.data = &(struct clk_regmap_mux_data) {
-		.offset = HHI_ETH_CLK_CNTL,
-		.mask = 0x7,
-		.shift = 9,
-		.table = meson8_eth_clk_mux_table,
-	},
-	.hw.init = &(struct clk_init_data) {
-		.name = "eth_clk_sel",
-		.ops = &clk_regmap_mux_ops,
-		.parent_data = &(const struct clk_parent_data) {
-			/* TODO: all other parents are unknown */
-			.fw_name = "rmii_clk",
-		},
-		.num_parents = 1,
-	},
-};
-
-static struct clk_regmap meson8_eth_clk_div = {
-	.data = &(struct clk_regmap_div_data) {
-		.offset = HHI_ETH_CLK_CNTL,
-		.shift = 0,
-		.width = 8,
-	},
-	.hw.init = &(struct clk_init_data) {
-		.name = "eth_clk_div",
-		.ops = &clk_regmap_divider_ops,
-		.parent_hws = (const struct clk_hw *[]) {
-			&meson8_eth_clk_sel.hw
-		},
-		.num_parents = 1,
-		.flags = CLK_SET_RATE_PARENT,
-	},
-};
-
-static struct clk_regmap meson8_eth_clk_phase = {
-	.data = &(struct meson_clk_phase_data) {
-		.ph = {
-			.reg_off = HHI_ETH_CLK_CNTL,
-			.shift = 14,
-			.width = 1,
-		},
-	},
-	.hw.init = &(struct clk_init_data){
-		.name = "eth_clk_inverted",
-		.ops = &meson_clk_phase_ops,
-		.parent_hws = (const struct clk_hw *[]) {
-			&meson8_eth_clk_div.hw
-		},
-		.num_parents = 1,
-		.flags = CLK_SET_RATE_PARENT,
-	},
-};
-
-static struct clk_regmap meson8_eth_clk_gate = {
-	.data = &(struct clk_regmap_gate_data) {
-		.offset = HHI_ETH_CLK_CNTL,
-		.bit_idx = 8,
-	},
-	.hw.init = &(struct clk_init_data){
-		.name = "eth_clk_en",
-		.ops = &clk_regmap_gate_ops,
-		.parent_hws = (const struct clk_hw *[]) {
-			&meson8_eth_clk_phase.hw
-		},
-		.num_parents = 1,
-		.flags = CLK_SET_RATE_PARENT,
-	},
-};
-
 #define MESON_GATE(_name, _reg, _bit) \
 	MESON_PCLK(_name, _reg, _bit, &meson8b_clk81.hw)
 
@@ -2858,6 +2715,7 @@ static MESON_GATE(meson8b_ao_iface, HHI_GCLK_AO, 3);
 
 static struct clk_hw_onecell_data meson8_hw_onecell_data = {
 	.hws = {
+		[CLKID_XTAL] = &meson8b_xtal.hw,
 		[CLKID_PLL_FIXED] = &meson8b_fixed_pll.hw,
 		[CLKID_PLL_VID] = &meson8b_vid_pll.hw,
 		[CLKID_PLL_SYS] = &meson8b_sys_pll.hw,
@@ -3057,11 +2915,6 @@ static struct clk_hw_onecell_data meson8_hw_onecell_data = {
 		[CLKID_CTS_MCLK_I958_DIV]   = &meson8b_cts_mclk_i958_div.hw,
 		[CLKID_CTS_MCLK_I958]	    = &meson8b_cts_mclk_i958.hw,
 		[CLKID_CTS_I958]	    = &meson8b_cts_i958.hw,
-		[CLKID_VID_PLL_LVDS_EN]	    = &meson8b_vid_pll_lvds_en.hw,
-		[CLKID_ETH_CLK_SEL]	    = &meson8_eth_clk_sel.hw,
-		[CLKID_ETH_CLK_DIV]	    = &meson8_eth_clk_div.hw,
-		[CLKID_ETH_CLK_PHASE]	    = &meson8_eth_clk_phase.hw,
-		[CLKID_ETH_CLK]		    = &meson8_eth_clk_gate.hw,
 		[CLK_NR_CLKS]		    = NULL,
 	},
 	.num = CLK_NR_CLKS,
@@ -3069,6 +2922,7 @@ static struct clk_hw_onecell_data meson8_hw_onecell_data = {
 
 static struct clk_hw_onecell_data meson8b_hw_onecell_data = {
 	.hws = {
+		[CLKID_XTAL] = &meson8b_xtal.hw,
 		[CLKID_PLL_FIXED] = &meson8b_fixed_pll.hw,
 		[CLKID_PLL_VID] = &meson8b_vid_pll.hw,
 		[CLKID_PLL_SYS] = &meson8b_sys_pll.hw,
@@ -3279,7 +3133,6 @@ static struct clk_hw_onecell_data meson8b_hw_onecell_data = {
 		[CLKID_CTS_MCLK_I958_DIV]   = &meson8b_cts_mclk_i958_div.hw,
 		[CLKID_CTS_MCLK_I958]	    = &meson8b_cts_mclk_i958.hw,
 		[CLKID_CTS_I958]	    = &meson8b_cts_i958.hw,
-		[CLKID_VID_PLL_LVDS_EN]	    = &meson8b_vid_pll_lvds_en.hw,
 		[CLK_NR_CLKS]		    = NULL,
 	},
 	.num = CLK_NR_CLKS,
@@ -3287,6 +3140,7 @@ static struct clk_hw_onecell_data meson8b_hw_onecell_data = {
 
 static struct clk_hw_onecell_data meson8m2_hw_onecell_data = {
 	.hws = {
+		[CLKID_XTAL] = &meson8b_xtal.hw,
 		[CLKID_PLL_FIXED] = &meson8b_fixed_pll.hw,
 		[CLKID_PLL_VID] = &meson8b_vid_pll.hw,
 		[CLKID_PLL_SYS] = &meson8b_sys_pll.hw,
@@ -3499,7 +3353,6 @@ static struct clk_hw_onecell_data meson8m2_hw_onecell_data = {
 		[CLKID_CTS_MCLK_I958_DIV]   = &meson8b_cts_mclk_i958_div.hw,
 		[CLKID_CTS_MCLK_I958]	    = &meson8b_cts_mclk_i958.hw,
 		[CLKID_CTS_I958]	    = &meson8b_cts_i958.hw,
-		[CLKID_VID_PLL_LVDS_EN]	    = &meson8b_vid_pll_lvds_en.hw,
 		[CLK_NR_CLKS]		    = NULL,
 	},
 	.num = CLK_NR_CLKS,
@@ -3698,11 +3551,6 @@ static struct clk_regmap *const meson8b_clk_regmaps[] = {
 	&meson8b_cts_mclk_i958_div,
 	&meson8b_cts_mclk_i958,
 	&meson8b_cts_i958,
-	&meson8b_vid_pll_lvds_en,
-	&meson8_eth_clk_sel,
-	&meson8_eth_clk_div,
-	&meson8_eth_clk_phase,
-	&meson8_eth_clk_gate,
 };
 
 static const struct meson8b_clk_reset_line {
@@ -3877,6 +3725,12 @@ static struct meson8b_nb_data meson8b_cpu_nb_data = {
 	.nb.notifier_call = meson8b_cpu_clk_notifier_cb,
 };
 
+static const struct regmap_config clkc_regmap_config = {
+	.reg_bits       = 32,
+	.val_bits       = 32,
+	.reg_stride     = 4,
+};
+
 static void __init meson8b_clkc_init_common(struct device_node *np,
 			struct clk_hw_onecell_data *clk_hw_onecell_data)
 {
@@ -3884,6 +3738,7 @@ static void __init meson8b_clkc_init_common(struct device_node *np,
 	struct device_node *parent_np;
 	const char *notifier_clk_name;
 	struct clk *notifier_clk;
+	void __iomem *clk_base;
 	struct regmap *map;
 	int i, ret;
 
@@ -3891,8 +3746,18 @@ static void __init meson8b_clkc_init_common(struct device_node *np,
 	map = syscon_node_to_regmap(parent_np);
 	of_node_put(parent_np);
 	if (IS_ERR(map)) {
-		pr_err("failed to get HHI regmap - Trying obsolete regs\n");
-		return;
+		pr_info("failed to get HHI regmap - Trying obsolete regs\n");
+
+		/* Generic clocks, PLLs and some of the reset-bits */
+		clk_base = of_iomap(np, 1);
+		if (!clk_base) {
+			pr_err("%s: Unable to map clk base\n", __func__);
+			return;
+		}
+
+		map = regmap_init_mmio(NULL, clk_base, &clkc_regmap_config);
+		if (IS_ERR(map))
+			return;
 	}
 
 	rstc = kzalloc(sizeof(*rstc), GFP_KERNEL);
@@ -3915,8 +3780,14 @@ static void __init meson8b_clkc_init_common(struct device_node *np,
 	for (i = 0; i < ARRAY_SIZE(meson8b_clk_regmaps); i++)
 		meson8b_clk_regmaps[i]->map = map;
 
-	/* skip CLKID_UNUSED and CLKID_XTAL which both don't exist */
-	i = CLKID_PLL_FIXED;
+	/*
+	 * always skip CLKID_UNUSED and also skip XTAL if the .dtb provides the
+	 * XTAL clock as input.
+	 */
+	if (!IS_ERR(of_clk_get_by_name(np, "xtal")))
+		i = CLKID_PLL_FIXED;
+	else
+		i = CLKID_XTAL;
 
 	/* register all clks */
 	for (; i < CLK_NR_CLKS; i++) {
@@ -3944,29 +3815,6 @@ static void __init meson8b_clkc_init_common(struct device_node *np,
 		       __func__);
 		return;
 	}
-
-	/*
-	 * HACK - deassert the following resets:
-	 * - CLKC_RESET_VID_DIVIDER_CNTL_RESET_N_PRE
-	 * - CLKC_RESET_VID_DIVIDER_CNTL_RESET_N_POST
-	 */
-	//regmap_update_bits(map, HHI_VID_DIVIDER_CNTL, 0x3, 0x3);
-
-	/*
-	 * HACK: enable the following gates - TODO: figure out what these are:
-	 * - LVDS_CLK_EN
-	 * - meson8b_hdmi_intr_sync
-	 * - meson8b_gclk_venci_int
-	 * (meson8b_vpu_intr is managed by meson_venc.c)
-	 */
-	//regmap_update_bits(map, HHI_VID_DIVIDER_CNTL, BIT(11), BIT(11));
-	//regmap_update_bits(map, HHI_GCLK_MPEG2, BIT(3), BIT(3));
-	//regmap_update_bits(map, HHI_GCLK_OTHER, BIT(8), BIT(8));
-
-	/* The HDMI PLL VCO is limited to 1.2G~3.0GHz */
-	clk_hw_set_rate_range(clk_hw_onecell_data->hws[CLKID_HDMI_PLL_DCO],
-			      1200 * 1000UL * 1000UL,
-			      3000 * 1000UL * 1000UL);
 
 	ret = of_clk_add_hw_provider(np, of_clk_hw_onecell_get,
 				     clk_hw_onecell_data);

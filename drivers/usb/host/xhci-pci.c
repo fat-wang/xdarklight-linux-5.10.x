@@ -33,6 +33,9 @@
 #define PCI_DEVICE_ID_FRESCO_LOGIC_FL1100	0x1100
 #define PCI_DEVICE_ID_FRESCO_LOGIC_FL1400	0x1400
 
+#define PCI_VENDOR_ID_ETRON		0x1b6f
+#define PCI_DEVICE_ID_EJ168		0x7023
+
 #define PCI_DEVICE_ID_INTEL_LYNXPOINT_XHCI	0x8c31
 #define PCI_DEVICE_ID_INTEL_LYNXPOINT_LP_XHCI	0x9c31
 #define PCI_DEVICE_ID_INTEL_WILDCATPOINT_LP_XHCI	0x9cb1
@@ -262,11 +265,10 @@ static void xhci_pci_quirks(struct device *dev, struct xhci_hcd *xhci)
 		xhci->quirks |= XHCI_DEFAULT_PM_RUNTIME_ALLOW;
 
 	if (pdev->vendor == PCI_VENDOR_ID_ETRON &&
-			pdev->device == PCI_DEVICE_ID_ETRON_EJ168) {
+			pdev->device == PCI_DEVICE_ID_EJ168) {
 		xhci->quirks |= XHCI_RESET_ON_RESUME;
 		xhci->quirks |= XHCI_TRUST_TX_LENGTH;
 		xhci->quirks |= XHCI_BROKEN_STREAMS;
-		xhci->quirks |= XHCI_ETRON_GPIO_QUIRK;
 	}
 	if (pdev->vendor == PCI_VENDOR_ID_RENESAS &&
 	    pdev->device == 0x0014) {
@@ -504,16 +506,10 @@ static int xhci_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	if (xhci->quirks & XHCI_DEFAULT_PM_RUNTIME_ALLOW)
 		pm_runtime_allow(&dev->dev);
 
-	if (xhci->quirks & XHCI_ETRON_GPIO_QUIRK) {
-		retval = etron_xhci_pci_probe(dev);
-		if (retval)
-			goto remove_usb3_hcd;
-	}
+	dma_set_max_seg_size(&dev->dev, UINT_MAX);
 
 	return 0;
 
-remove_usb3_hcd:
-	usb_remove_hcd(xhci->shared_hcd);
 put_usb3_hcd:
 	usb_put_hcd(xhci->shared_hcd);
 dealloc_usb2_hcd:

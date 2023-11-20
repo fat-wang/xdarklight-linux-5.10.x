@@ -129,7 +129,6 @@ struct meson_nand_ecc {
 
 struct meson_nfc_data {
 	const struct nand_ecc_caps *ecc_caps;
-	bool has_mmc_syscon;
 };
 
 struct meson_nfc_param {
@@ -212,7 +211,7 @@ static int meson_nand_calc_ecc_bytes(int step_size, int strength)
 	return ecc_bytes;
 }
 
-NAND_ECC_CAPS_SINGLE(meson8_ecc_caps,
+NAND_ECC_CAPS_SINGLE(meson_gxl_ecc_caps,
 		     meson_nand_calc_ecc_bytes, 1024, 8, 24, 30, 40, 50, 60);
 NAND_ECC_CAPS_SINGLE(meson_axg_ecc_caps,
 		     meson_nand_calc_ecc_bytes, 1024, 8);
@@ -1013,22 +1012,21 @@ static int meson_nfc_clk_init(struct meson_nfc *nfc)
 		return PTR_ERR(nfc->device_clk);
 	}
 
-	nfc->phase_tx = devm_clk_get_optional(nfc->dev, "tx");
+	nfc->phase_tx = devm_clk_get(nfc->dev, "tx");
 	if (IS_ERR(nfc->phase_tx)) {
 		dev_err(nfc->dev, "failed to get TX clk\n");
 		return PTR_ERR(nfc->phase_tx);
 	}
 
-	nfc->phase_rx = devm_clk_get_optional(nfc->dev, "rx");
+	nfc->phase_rx = devm_clk_get(nfc->dev, "rx");
 	if (IS_ERR(nfc->phase_rx)) {
 		dev_err(nfc->dev, "failed to get RX clk\n");
 		return PTR_ERR(nfc->phase_rx);
 	}
 
-	if (nfc->data->has_mmc_syscon)
-		/* init SD_EMMC_CLOCK to sane defaults w/min clock rate */
-		regmap_update_bits(nfc->reg_clk,
-				   0, CLK_SELECT_NAND, CLK_SELECT_NAND);
+	/* init SD_EMMC_CLOCK to sane defaults w/min clock rate */
+	regmap_update_bits(nfc->reg_clk,
+			   0, CLK_SELECT_NAND, CLK_SELECT_NAND);
 
 	ret = clk_prepare_enable(nfc->core_clk);
 	if (ret) {
@@ -1360,32 +1358,16 @@ static irqreturn_t meson_nfc_irq(int irq, void *id)
 	return IRQ_HANDLED;
 }
 
-static const struct meson_nfc_data meson8_data = {
-	.ecc_caps = &meson8_ecc_caps,
-	.has_mmc_syscon = false,
-};
-
 static const struct meson_nfc_data meson_gxl_data = {
-	.ecc_caps = &meson8_ecc_caps,
-	.has_mmc_syscon = true,
+	.ecc_caps = &meson_gxl_ecc_caps,
 };
 
 static const struct meson_nfc_data meson_axg_data = {
 	.ecc_caps = &meson_axg_ecc_caps,
-	.has_mmc_syscon = true,
 };
 
 static const struct of_device_id meson_nfc_id_table[] = {
 	{
-		.compatible = "amlogic,meson8-nfc",
-		.data = &meson8_data,
-	}, {
-		.compatible = "amlogic,meson8b-nfc",
-		.data = &meson8_data,
-	}, {
-		.compatible = "amlogic,meson-gxbb-nfc",
-		.data = &meson8_data,
-	}, {
 		.compatible = "amlogic,meson-gxl-nfc",
 		.data = &meson_gxl_data,
 	}, {
@@ -1422,14 +1404,12 @@ static int meson_nfc_probe(struct platform_device *pdev)
 	if (IS_ERR(nfc->reg_base))
 		return PTR_ERR(nfc->reg_base);
 
-	if (nfc->data->has_mmc_syscon) {
-		nfc->reg_clk =
-			syscon_regmap_lookup_by_phandle(dev->of_node,
-							"amlogic,mmc-syscon");
-		if (IS_ERR(nfc->reg_clk)) {
-			dev_err(dev, "Failed to lookup clock base\n");
-			return PTR_ERR(nfc->reg_clk);
-		}
+	nfc->reg_clk =
+		syscon_regmap_lookup_by_phandle(dev->of_node,
+						"amlogic,mmc-syscon");
+	if (IS_ERR(nfc->reg_clk)) {
+		dev_err(dev, "Failed to lookup clock base\n");
+		return PTR_ERR(nfc->reg_clk);
 	}
 
 	irq = platform_get_irq(pdev, 0);

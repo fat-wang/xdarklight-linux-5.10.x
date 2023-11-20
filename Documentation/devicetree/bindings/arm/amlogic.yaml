@@ -40,7 +40,6 @@ properties:
       - description: Boards with the Amlogic Meson8m2 SoC
         items:
           - enum:
-              - tronsmart,mxiii
               - tronsmart,mxiii-plus
           - const: amlogic,meson8m2
 
@@ -164,11 +163,9 @@ properties:
       - description: Boards with the Amlogic Meson SM1 S905X3/D3/Y3 SoC
         items:
           - enum:
-              - amediatech,x96-air-2g
-              - amediatech,x96-air-4g
-              - hardkernel,odroid-c4
-              - khadas,vim3l
               - seirobotics,sei610
+              - khadas,vim3l
+              - hardkernel,odroid-c4
           - const: amlogic,sm1
 
       - description: Boards with the Amlogic Meson A1 A113L SoC

@@ -890,8 +890,8 @@ bool meson_venc_hdmi_supported_vic(int vic)
 }
 EXPORT_SYMBOL_GPL(meson_venc_hdmi_supported_vic);
 
-static void meson_venc_hdmi_get_dmt_vmode(const struct drm_display_mode *mode,
-					  union meson_hdmi_venc_mode *dmt_mode)
+void meson_venc_hdmi_get_dmt_vmode(const struct drm_display_mode *mode,
+				   union meson_hdmi_venc_mode *dmt_mode)
 {
 	memset(dmt_mode, 0, sizeof(*dmt_mode));
 
@@ -944,66 +944,6 @@ bool meson_venc_hdmi_venc_repeat(int vic)
 	return false;
 }
 EXPORT_SYMBOL_GPL(meson_venc_hdmi_venc_repeat);
-
-void meson_venc_hdmi_bridge_reset(struct meson_drm *priv)
-{
-	u32 wr_clk = readl_relaxed(priv->io_base + _REG(VPU_HDMI_SETTING));
-	enum meson_venc_source {
-		MESON_VENC_SOURCE_NONE = 0,
-		MESON_VENC_SOURCE_ENCI = 1,
-		MESON_VENC_SOURCE_ENCP = 2,
-	};
-
-	/* Temporary Disable VENC video stream */
-	if (priv->venc.hdmi_use_enci)
-		writel_relaxed(0, priv->io_base + _REG(ENCI_VIDEO_EN));
-	else
-		writel_relaxed(0, priv->io_base + _REG(ENCP_VIDEO_EN));
-
-	/* Temporary Disable HDMI video stream to HDMI-TX */
-	writel_bits_relaxed(0x3, 0,
-			    priv->io_base + _REG(VPU_HDMI_SETTING));
-	writel_bits_relaxed(0xf << 8, 0,
-			    priv->io_base + _REG(VPU_HDMI_SETTING));
-
-	/* Re-Enable VENC video stream */
-	if (priv->venc.hdmi_use_enci)
-		writel_relaxed(1, priv->io_base + _REG(ENCI_VIDEO_EN));
-	else
-		writel_relaxed(1, priv->io_base + _REG(ENCP_VIDEO_EN));
-
-	/* Push back HDMI clock settings */
-	writel_bits_relaxed(0xf << 8, wr_clk & (0xf << 8),
-			    priv->io_base + _REG(VPU_HDMI_SETTING));
-
-	/* Enable and Select HDMI video source for HDMI-TX */
-	if (priv->venc.hdmi_use_enci)
-		writel_bits_relaxed(0x3, MESON_VENC_SOURCE_ENCI,
-				    priv->io_base + _REG(VPU_HDMI_SETTING));
-	else
-		writel_bits_relaxed(0x3, MESON_VENC_SOURCE_ENCP,
-				    priv->io_base + _REG(VPU_HDMI_SETTING));
-}
-EXPORT_SYMBOL_GPL(meson_venc_hdmi_bridge_reset);
-
-void meson_venc_hdmi_encoder_enable(struct meson_drm *priv)
-{
-	if (priv->venc.hdmi_use_enci)
-		writel_relaxed(1, priv->io_base + _REG(ENCI_VIDEO_EN));
-	else
-		writel_relaxed(1, priv->io_base + _REG(ENCP_VIDEO_EN));
-}
-EXPORT_SYMBOL_GPL(meson_venc_hdmi_encoder_enable);
-
-void meson_venc_hdmi_encoder_disable(struct meson_drm *priv)
-{
-	writel_bits_relaxed(0x3, 0,
-			    priv->io_base + _REG(VPU_HDMI_SETTING));
-
-	writel_relaxed(0, priv->io_base + _REG(ENCI_VIDEO_EN));
-	writel_relaxed(0, priv->io_base + _REG(ENCP_VIDEO_EN));
-}
-EXPORT_SYMBOL_GPL(meson_venc_hdmi_encoder_disable);
 
 void meson_venc_hdmi_mode_set(struct meson_drm *priv, int vic,
 			      unsigned int ycrcb_map,

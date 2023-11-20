@@ -7,12 +7,10 @@
 #ifndef __MESON_DRV_H
 #define __MESON_DRV_H
 
-#include <linux/clk.h>
 #include <linux/device.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/regmap.h>
-#include <linux/reset.h>
 
 struct drm_crtc;
 struct drm_device;
@@ -21,13 +19,10 @@ struct meson_drm;
 struct meson_afbcd_ops;
 
 enum vpu_compatible {
-	VPU_COMPATIBLE_M8 = 0,
-	VPU_COMPATIBLE_M8B = 1,
-	VPU_COMPATIBLE_M8M2 = 2,
-	VPU_COMPATIBLE_GXBB = 3,
-	VPU_COMPATIBLE_GXL  = 4,
-	VPU_COMPATIBLE_GXM  = 5,
-	VPU_COMPATIBLE_G12A = 6,
+	VPU_COMPATIBLE_GXBB = 0,
+	VPU_COMPATIBLE_GXL  = 1,
+	VPU_COMPATIBLE_GXM  = 2,
+	VPU_COMPATIBLE_G12A = 3,
 };
 
 struct meson_drm_match_data {
@@ -37,24 +32,6 @@ struct meson_drm_match_data {
 
 struct meson_drm_soc_limits {
 	unsigned int max_hdmi_phy_freq;
-};
-
-enum vpu_bulk_intr_clk_id {
-	VPU_INTR_CLK_VPU = 0,
-	VPU_INTR_CLK_HDMI_INTR_SYNC,
-	VPU_INTR_CLK_VENCI,
-	VPU_INTR_CLK_NUM
-};
-
-enum vpu_bulk_clk_id {
-	VPU_VID_CLK_TMDS = 0,
-	VPU_VID_CLK_HDMI_TX_PIXEL,
-	VPU_VID_CLK_CTS_ENCP,
-	VPU_VID_CLK_CTS_ENCI,
-	VPU_VID_CLK_CTS_ENCT,
-	VPU_VID_CLK_CTS_ENCL,
-	VPU_VID_CLK_CTS_VDAC0,
-	VPU_VID_CLK_NUM
 };
 
 struct meson_drm {
@@ -76,12 +53,6 @@ struct meson_drm {
 	struct drm_plane *overlay_plane;
 
 	const struct meson_drm_soc_limits *limits;
-
-	struct clk_bulk_data intr_clks[VPU_INTR_CLK_NUM];
-	struct clk_bulk_data vid_clks[VPU_VID_CLK_NUM];
-	struct clk *clk_venc;
-	struct clk *clk_dac;
-	struct reset_control *vid_pll_resets[4];
 
 	/* Components Data */
 	struct {
@@ -196,10 +167,6 @@ struct meson_drm {
 		u64 modifier;
 		u32 format;
 	} afbcd;
-
-	struct {
-		uint32_t cntl1;
-	} cvbs;
 };
 
 static inline int meson_vpu_is_compatible(struct meson_drm *priv,

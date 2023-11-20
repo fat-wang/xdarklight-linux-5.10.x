@@ -635,9 +635,9 @@
 #define VPP_WRAP_OSD3_MATRIX_EN_CTRL 0x3dbd
 
 /* osd1 HDR */
-// #define OSD1_HDR2_CTRL 0x38a0
-// #define OSD1_HDR2_CTRL_VDIN0_HDR2_TOP_EN       BIT(13)
-// #define OSD1_HDR2_CTRL_REG_ONLY_MAT            BIT(16)
+#define OSD1_HDR2_CTRL 0x38a0
+#define OSD1_HDR2_CTRL_VDIN0_HDR2_TOP_EN       BIT(13)
+#define OSD1_HDR2_CTRL_REG_ONLY_MAT            BIT(16)
 
 /* osd2 scaler */
 #define OSD2_VSC_PHASE_STEP 0x3d00

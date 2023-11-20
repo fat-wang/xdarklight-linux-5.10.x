@@ -63,6 +63,10 @@
 	pinctrl-names = "default";
 };
 
+&ir {
+        linux,rc-map-name = "rc-khamsin";
+};
+
 /* This is connected to the Bluetooth module: */
 &uart_A {
 	status = "okay";
@@ -75,5 +79,6 @@
 		enable-gpios = <&gpio GPIOX_17 GPIO_ACTIVE_HIGH>;
 		max-speed = <2000000>;
 		clocks = <&wifi32k>;
+		clock-names = "lpo";
 	};
 };

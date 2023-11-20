@@ -7,6 +7,7 @@
 /dts-v1/;
 #include "meson8b.dtsi"
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/net/realtek-rtl8211f.h>
 
 / {
 	model = "Hardkernel ODROID-C1";
@@ -30,6 +31,17 @@
 	emmc_pwrseq: emmc-pwrseq {
 		compatible = "mmc-pwrseq-emmc";
 		reset-gpios = <&gpio BOOT_9 GPIO_ACTIVE_LOW>;
+	};
+
+	hdmi-connector {
+		compatible = "hdmi-connector";
+		type = "a";
+
+		port {
+			hdmi_connector_in: endpoint {
+				remote-endpoint = <&hdmi_tx_tmds_out>;
+			};
+		};
 	};
 
 	leds {
@@ -85,17 +97,58 @@
 			  1800000 1>;
 	};
 
-	iio-hwmon {
-		compatible = "iio-hwmon";
-		io-channels = <&saradc 8>;
-	};
-
 	rtc32k_xtal: rtc32k-xtal-clk {
 		/* X3 in the schematics */
 		compatible = "fixed-clock";
 		clock-frequency = <32768>;
 		clock-output-names = "RTC32K";
 		#clock-cells = <0>;
+	};
+
+	sound {
+		compatible = "amlogic,gx-sound-card";
+		model = "M8B-ODROID-C1";
+
+		assigned-clocks = <&clkc CLKID_MPLL0>,
+				  <&clkc CLKID_MPLL1>;
+		assigned-clock-rates = <294912000>,
+				       <270950400>;
+
+		dai-link-0 {
+			sound-dai = <&aiu AIU_CPU CPU_I2S_FIFO>;
+		};
+
+		dai-link-1 {
+			sound-dai = <&aiu AIU_CPU CPU_I2S_ENCODER>;
+			dai-format = "i2s";
+			mclk-fs = <256>;
+
+			codec-0 {
+				sound-dai = <&aiu AIU_HDMI CTRL_I2S>;
+			};
+		};
+
+		dai-link-2 {
+			sound-dai = <&aiu AIU_HDMI CTRL_OUT>;
+
+			codec-0 {
+				sound-dai = <&hdmi_tx>;
+			};
+		};
+	};
+
+	usb0_vbus: regulator-usb0-vbus {
+		/* Richtek RT9715EGB */
+		compatible = "regulator-fixed";
+
+		regulator-name = "USB0_VBUS";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+
+		vin-supply = <&p5v0>;
+
+		gpio = <&gpio_ao GPIOAO_5 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
 	};
 
 	vcc_1v8: regulator-vcc-1v8 {
@@ -136,7 +189,7 @@
 		regulator-min-microvolt = <860000>;
 		regulator-max-microvolt = <1140000>;
 
-		pwm-supply = <&p5v0>;
+		vin-supply = <&p5v0>;
 
 		pwms = <&pwm_cd 0 12218 0>;
 		pwm-dutycycle-range = <91 0>;
@@ -168,7 +221,7 @@
 		regulator-min-microvolt = <860000>;
 		regulator-max-microvolt = <1140000>;
 
-		pwm-supply = <&p5v0>;
+		vin-supply = <&p5v0>;
 
 		pwms = <&pwm_cd 1 12218 0>;
 		pwm-dutycycle-range = <91 0>;
@@ -190,6 +243,10 @@
 
 		vin-supply = <&vcc_3v3>;
 	};
+};
+
+&aiu {
+	status = "okay";
 };
 
 &cpu0 {
@@ -230,6 +287,13 @@
 			interrupt-parent = <&gpio_intc>;
 			/* GPIOH_3 */
 			interrupts = <17 IRQ_TYPE_LEVEL_LOW>;
+
+			/* absent */
+			realtek,led-0-mode = <0>;
+			/* green */
+			realtek,led-1-mode = <(RTL8211F_LED_LINK_100 | RTL8211F_LED_ACTIVITY | RTL8211F_LED_EEE)>;
+			/* amber */
+			realtek,led-2-mode = <(RTL8211F_LED_LINK_1000 | RTL8211F_LED_ACTIVITY | RTL8211F_LED_EEE)>;
 		};
 	};
 };
@@ -275,7 +339,9 @@
 			  "ETH_RXD1", "ETH_RXD0", "ETH_RX_DV",
 			  "RGMII_RX_CLK", "ETH_RXD3", "ETH_RXD2",
 			  "ETH_TXEN", "ETH_PHY_REF_CLK_25MOUT",
-			  "ETH_MDC", "ETH_MDIO";
+			  "ETH_MDC", "ETH_MDIO",
+			  /* BSD_EN */
+			  "";
 };
 
 &gpio_ao {
@@ -285,7 +351,7 @@
 			  "IR_IN", "J7 Header Pin 4",
 			  "J7 Header Pin 6", "J7 Header Pin 5",
 			  "J7 Header Pin 7", "HDMI_CEC",
-			  "SYS_LED", "", "";
+			  "SYS_LED", "";
 
 	/*
 	 * WARNING: The USB Hub on the Odroid-C1/C1+ needs a reset signal
@@ -298,6 +364,18 @@
 		gpios = <GPIOAO_4 GPIO_ACTIVE_HIGH>;
 		output-high;
 		line-name = "usb-hub-reset";
+	};
+};
+
+&hdmi_tx {
+	status = "okay";
+	pinctrl-0 = <&hdmi_hpd_pins>, <&hdmi_i2c_pins>;
+	pinctrl-names = "default";
+};
+
+&hdmi_tx_tmds_port {
+	hdmi_tx_tmds_out: endpoint {
+		remote-endpoint = <&hdmi_connector_in>;
 	};
 };
 
@@ -381,10 +459,28 @@
 	pinctrl-names = "default";
 };
 
-&usb1_phy {
+&usb0 {
 	status = "okay";
+
+	dr_mode = "otg";
+	usb-role-switch;
+
+	connector {
+		compatible = "extcon-usb-b-connector", "usb-b-connector";
+		type = "micro";
+		extcon = <&usb0_phy>;
+		vbus-supply = <&usb0_vbus>;
+	};
 };
 
 &usb1 {
+	status = "okay";
+};
+
+&usb0_phy {
+	status = "okay";
+};
+
+&usb1_phy {
 	status = "okay";
 };

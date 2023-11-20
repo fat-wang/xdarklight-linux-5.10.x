@@ -163,7 +163,7 @@ static void meson_plane_atomic_update(struct drm_plane *plane,
 
 	/* Enable OSD and BLK0, set max global alpha */
 	priv->viu.osd1_ctrl_stat = OSD_ENABLE |
-				   (0x100 << OSD_GLOBAL_ALPHA_SHIFT) |
+				   (0xFF << OSD_GLOBAL_ALPHA_SHIFT) |
 				   OSD_BLK0_ENABLE;
 
 	priv->viu.osd1_ctrl_stat2 = readl(priv->io_base +
@@ -194,8 +194,11 @@ static void meson_plane_atomic_update(struct drm_plane *plane,
 			priv->viu.osd1_ctrl_stat2 &= ~OSD_DPATH_MALI_AFBCD;
 	}
 
-	/* On GXBB, Use the old non-HDR RGB2YUV converter */
-	if (meson_vpu_is_compatible(priv, VPU_COMPATIBLE_GXBB))
+	/* On GXBB and earlier, Use the old non-HDR RGB2YUV converter */
+	if (meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8) ||
+	    meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8B) ||
+	    meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8M2) ||
+	    meson_vpu_is_compatible(priv, VPU_COMPATIBLE_GXBB))
 		priv->viu.osd1_blk0_cfg[0] |= OSD_OUTPUT_COLOR_RGB;
 
 	if (priv->viu.osd1_afbcd &&
@@ -226,17 +229,21 @@ static void meson_plane_atomic_update(struct drm_plane *plane,
 		}
 	}
 
-	switch (fb->format->format) {
-	case DRM_FORMAT_XRGB8888:
-	case DRM_FORMAT_XBGR8888:
-		/* For XRGB, replace the pixel's alpha by 0xFF */
-		priv->viu.osd1_ctrl_stat2 |= OSD_REPLACE_EN;
-		break;
-	case DRM_FORMAT_ARGB8888:
-	case DRM_FORMAT_ABGR8888:
-		/* For ARGB, use the pixel's alpha */
-		priv->viu.osd1_ctrl_stat2 &= ~OSD_REPLACE_EN;
-		break;
+	if (!meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8) &&
+	    !meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8B) &&
+	    !meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8M2)) {
+		switch (fb->format->format) {
+		case DRM_FORMAT_XRGB8888:
+		case DRM_FORMAT_XBGR8888:
+			/* For XRGB, replace the pixel's alpha by 0xFF */
+			priv->viu.osd1_ctrl_stat2 |= OSD_REPLACE_EN;
+			break;
+		case DRM_FORMAT_ARGB8888:
+		case DRM_FORMAT_ABGR8888:
+			/* For ARGB, use the pixel's alpha */
+			priv->viu.osd1_ctrl_stat2 &= ~OSD_REPLACE_EN;
+			break;
+		}
 	}
 
 	/* Default scaler parameters */

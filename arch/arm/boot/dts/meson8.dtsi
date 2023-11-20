@@ -9,6 +9,7 @@
 #include <dt-bindings/power/meson8-power.h>
 #include <dt-bindings/reset/amlogic,meson8b-clkc-reset.h>
 #include <dt-bindings/reset/amlogic,meson8b-reset.h>
+#include <dt-bindings/thermal/thermal.h>
 #include "meson.dtsi"
 
 / {
@@ -28,6 +29,7 @@
 			resets = <&clkc CLKC_RESET_CPU0_SOFT_RESET>;
 			operating-points-v2 = <&cpu_opp_table>;
 			clocks = <&clkc CLKID_CPUCLK>;
+			#cooling-cells = <2>; /* min followed by max */
 		};
 
 		cpu1: cpu@201 {
@@ -39,6 +41,7 @@
 			resets = <&clkc CLKC_RESET_CPU1_SOFT_RESET>;
 			operating-points-v2 = <&cpu_opp_table>;
 			clocks = <&clkc CLKID_CPUCLK>;
+			#cooling-cells = <2>; /* min followed by max */
 		};
 
 		cpu2: cpu@202 {
@@ -50,6 +53,7 @@
 			resets = <&clkc CLKC_RESET_CPU2_SOFT_RESET>;
 			operating-points-v2 = <&cpu_opp_table>;
 			clocks = <&clkc CLKID_CPUCLK>;
+			#cooling-cells = <2>; /* min followed by max */
 		};
 
 		cpu3: cpu@203 {
@@ -61,6 +65,7 @@
 			resets = <&clkc CLKC_RESET_CPU3_SOFT_RESET>;
 			operating-points-v2 = <&cpu_opp_table>;
 			clocks = <&clkc CLKID_CPUCLK>;
+			#cooling-cells = <2>; /* min followed by max */
 		};
 	};
 
@@ -190,6 +195,54 @@
 		};
 	};
 
+	thermal-zones {
+		soc {
+			polling-delay-passive = <250>; /* milliseconds */
+			polling-delay = <1000>; /* milliseconds */
+			thermal-sensors = <&thermal_sensor>;
+
+			cooling-maps {
+				map0 {
+					trip = <&soc_passive>;
+					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&mali THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+
+				map1 {
+					trip = <&soc_hot>;
+					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&mali THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+			};
+
+			trips {
+				soc_passive: soc-passive {
+					temperature = <80000>; /* millicelsius */
+					hysteresis = <2000>; /* millicelsius */
+					type = "passive";
+				};
+
+				soc_hot: soc-hot {
+					temperature = <90000>; /* millicelsius */
+					hysteresis = <2000>; /* millicelsius */
+					type = "hot";
+				};
+
+				soc_critical: soc-critical {
+					temperature = <110000>; /* millicelsius */
+					hysteresis = <2000>; /* millicelsius */
+					type = "critical";
+				};
+			};
+		};
+	};
+
 	mmcbus: bus@c8000000 {
 		compatible = "simple-bus";
 		reg = <0xc8000000 0x8000>;
@@ -251,17 +304,144 @@
 					  "pp2", "ppmmu2", "pp4", "ppmmu4",
 					  "pp5", "ppmmu5", "pp6", "ppmmu6";
 			resets = <&reset RESET_MALI>;
-
 			clocks = <&clkc CLKID_CLK81>, <&clkc CLKID_MALI>;
 			clock-names = "bus", "core";
-
-			assigned-clocks = <&clkc CLKID_MALI>;
-			assigned-clock-rates = <318750000>;
-
 			operating-points-v2 = <&gpu_opp_table>;
+			#cooling-cells = <2>; /* min followed by max */
+		};
+
+		hdmi_tx: hdmi-tx@42000 {
+			compatible = "amlogic,meson8-hdmi-tx";
+			reg = <0x42000 0xc>;
+			interrupts = <GIC_SPI 57 IRQ_TYPE_EDGE_RISING>;
+			phys = <&hdmi_tx_phy>;
+			phy-names = "hdmi";
+			clocks = <&clkc CLKID_HDMI_PCLK>,
+				 <&clkc CLKID_HDMI_SYS>;
+			clock-names = "pclk", "sys";
+
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			#sound-dai-cells = <0>;
+			sound-name-prefix = "HDMITX";
+
+			status = "disabled";
+
+			/* VPU VENC Input */
+			hdmi_tx_venc_port: port@0 {
+				reg = <0>;
+
+				hdmi_tx_in: endpoint {
+					remote-endpoint = <&hdmi_tx_out>;
+				};
+			};
+
+			/* TMDS Output */
+			hdmi_tx_tmds_port: port@1 {
+				reg = <1>;
+			};
+		};
+
+		nfc: nand-controller@48600 {
+			compatible = "amlogic,meson8-nfc";
+			reg = <0x48600 0x24>;
+			interrupts = <GIC_SPI 34 IRQ_TYPE_EDGE_RISING>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			clocks = <&clkc CLKID_NAND>, <&clkc CLKID_NAND_CLK>;
+			clock-names = "core", "device";
+			status = "disabled";
+		};
+
+		vpu: vpu@100000 {
+			compatible = "amlogic,meson8-vpu";
+
+			reg = <0x100000 0x10000>;
+			reg-names = "vpu";
+
+			interrupts = <GIC_SPI 3 IRQ_TYPE_EDGE_RISING>;
+
+			amlogic,canvas = <&canvas>;
+			amlogic,hhi-sysctrl = <&hhi>;
+
+			clocks = <&clkc CLKID_VPU_INTR>,
+				 <&clkc CLKID_HDMI_INTR_SYNC>,
+				 <&clkc CLKID_GCLK_VENCI_INT>,
+				 <&clkc CLKID_HDMI_PLL_HDMI_OUT>,
+				 <&clkc CLKID_HDMI_TX_PIXEL>,
+				 <&clkc CLKID_CTS_ENCP>,
+				 <&clkc CLKID_CTS_ENCI>,
+				 <&clkc CLKID_CTS_ENCT>,
+				 <&clkc CLKID_CTS_ENCL>,
+				 <&clkc CLKID_CTS_VDAC0>;
+			clock-names = "vpu_intr",
+				      "hdmi_intr_sync",
+				      "venci_int",
+				      "tmds",
+				      "hdmi_tx_pixel",
+				      "cts_encp",
+				      "cts_enci",
+				      "cts_enct",
+				      "cts_encl",
+				      "cts_vdac0";
+
+			resets = <&clkc CLKC_RESET_VID_DIVIDER_CNTL_RESET_N_PRE>,
+				 <&clkc CLKC_RESET_VID_DIVIDER_CNTL_RESET_N_POST>,
+				 <&clkc CLKC_RESET_VID_DIVIDER_CNTL_SOFT_RESET_PRE>,
+				 <&clkc CLKC_RESET_VID_DIVIDER_CNTL_SOFT_RESET_POST>;
+			reset-names = "vid_pll_pre",
+				      "vid_pll_post",
+				      "vid_pll_soft_pre",
+				      "vid_pll_soft_post";
+
+			power-domains = <&pwrc PWRC_MESON8_VPU_ID>;
+
+			nvmem-cells = <&cvbs_trimming>;
+			nvmem-cell-names = "cvbs_trimming";
+
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			/* CVBS VDAC output port */
+			cvbs_vdac_port: port@0 {
+				reg = <0>;
+			};
+
+			/* HDMI-TX output port */
+			hdmi_tx_port: port@1 {
+				reg = <1>;
+
+				hdmi_tx_out: endpoint {
+					remote-endpoint = <&hdmi_tx_in>;
+				};
+			};
 		};
 	};
 }; /* end of / */
+
+&aiu {
+	compatible = "amlogic,aiu-meson8", "amlogic,aiu";
+	clocks = <&clkc CLKID_AIU_GLUE>,
+		 <&clkc CLKID_I2S_OUT>,
+		 <&clkc CLKID_AOCLK_GATE>,
+		 <&clkc CLKID_CTS_AMCLK>,
+		 <&clkc CLKID_MIXER_IFACE>,
+		 <&clkc CLKID_IEC958>,
+		 <&clkc CLKID_IEC958_GATE>,
+		 <&clkc CLKID_CTS_MCLK_I958>,
+		 <&clkc CLKID_CTS_I958>;
+	clock-names = "pclk",
+		      "i2s_pclk",
+		      "i2s_aoclk",
+		      "i2s_mclk",
+		      "i2s_mixer",
+		      "spdif_pclk",
+		      "spdif_aoclk",
+		      "spdif_mclk",
+		      "spdif_mclk_sel";
+	resets = <&reset RESET_AIU>;
+};
 
 &aobus {
 	pmu: pmu@e0 {
@@ -283,7 +463,47 @@
 			reg-names = "mux", "pull", "gpio";
 			gpio-controller;
 			#gpio-cells = <2>;
-			gpio-ranges = <&pinctrl_aobus 0 0 16>;
+			gpio-ranges = <&pinctrl_aobus 0 0 15>;
+		};
+
+		hdmi_cec_ao_pins: hdmi-cec-ao {
+			mux {
+				groups = "hdmi_cec_ao";
+				function = "hdmi_cec_ao";
+				bias-pull-up;
+			};
+		};
+
+		i2s_am_clk_pins: i2s-am-clk-out {
+			mux {
+				groups = "i2s_am_clk_out_ao";
+				function = "i2s_ao";
+				bias-disable;
+			};
+		};
+
+		i2s_out_ao_clk_pins: i2s-ao-clk-out {
+			mux {
+				groups = "i2s_ao_clk_out_ao";
+				function = "i2s_ao";
+				bias-disable;
+			};
+		};
+
+		i2s_out_lr_clk_pins: i2s-lr-clk-out {
+			mux {
+				groups = "i2s_lr_clk_out_ao";
+				function = "i2s_ao";
+				bias-disable;
+			};
+		};
+
+		i2s_out_ch01_ao_pins: i2s-out-ch01 {
+			mux {
+				groups = "i2s_out_ch01_ao";
+				function = "i2s_ao";
+				bias-disable;
+			};
 		};
 
 		uart_ao_a_pins: uart_ao_a {
@@ -318,6 +538,23 @@
 			};
 		};
 	};
+
+	cec_AO: cec@100 {
+		compatible = "amlogic,meson-gx-ao-cec"; // FIXME
+		reg = <0x100 0x14>;
+		interrupts = <GIC_SPI 151 IRQ_TYPE_EDGE_RISING>;
+		// TODO: 32768HZ clock
+		hdmi-phandle = <&hdmi_tx>;
+		status = "disabled";
+	};
+};
+
+&ao_arc_rproc {
+	compatible= "amlogic,meson8-ao-arc", "amlogic,meson-mx-ao-arc";
+	amlogic,secbus2 = <&secbus2>;
+	sram = <&ao_arc_sram>;
+	resets = <&reset RESET_MEDIA_CPU>;
+	clocks = <&clkc CLKID_AO_MEDIA_CPU>;
 };
 
 &cbus {
@@ -359,7 +596,23 @@
 			reg-names = "mux", "pull", "pull-enable", "gpio";
 			gpio-controller;
 			#gpio-cells = <2>;
-			gpio-ranges = <&pinctrl_cbus 0 0 120>;
+			gpio-ranges = <&pinctrl_cbus 0 0 121>;
+		};
+
+		hdmi_hpd_pins: hdmi-hpd {
+			mux {
+				groups = "hdmi_hpd";
+				function = "hdmi";
+				bias-disable;
+			};
+		};
+
+		hdmi_i2c_pins: hdmi-i2c {
+			mux {
+				groups = "hdmi_sda", "hdmi_scl";
+				function = "hdmi";
+				bias-disable;
+			};
 		};
 
 		sd_a_pins: sd-a {
@@ -389,12 +642,29 @@
 			};
 		};
 
+		sdxc_a_pins: sdxc-a {
+			mux {
+				groups = "sdxc_d0_a", "sdxc_d13_a",
+					 "sdxc_clk_a", "sdxc_cmd_a";
+				function = "sdxc_a";
+				bias-pull-up;
+			};
+		};
+
 		sdxc_b_pins: sdxc-b {
 			mux {
 				groups = "sdxc_d0_b", "sdxc_d13_b",
 					 "sdxc_clk_b", "sdxc_cmd_b";
 				function = "sdxc_b";
 				bias-pull-up;
+			};
+		};
+
+		spdif_out_pins: spdif-out {
+			mux {
+				groups = "spdif_out";
+				function = "spdif";
+				bias-disable;
 			};
 		};
 
@@ -415,6 +685,35 @@
 					 "eth_mdc";
 				function = "ethernet";
 				bias-disable;
+			};
+		};
+
+		nand_pins: nand {
+			mux {
+				groups = "nand_io",
+					"nand_ale",
+					"nand_cle",
+					"nand_wen_clk",
+					"nand_ren_clk",
+					"nand_dqs";
+				function = "nand";
+				bias-pull-down;
+			};
+		};
+
+		nand_ce0_pins: nand-ce0 {
+			mux {
+				groups = "nand_io_ce0";
+				function = "nand";
+				bias-pull-up;
+			};
+		};
+
+		nand_rb0_pins: nand-rb0 {
+			mux {
+				groups = "nand_io_rb0";
+				function = "nand";
+				bias-pull-up;
 			};
 		};
 
@@ -443,10 +742,24 @@
 				bias-disable;
 			};
 		};
+
+		xtal_32k_out_pins: xtal-32k-out {
+			mux {
+				groups = "xtal_32k_out";
+				function = "xtal";
+				bias-disable;
+			};
+		};
 	};
 };
 
 &ahb_sram {
+	ao_arc_sram: ao-arc-sram@0 {
+		compatible = "amlogic,meson8-ao-arc-sram";
+		reg = <0x0 0x8000>;
+		pool;
+	};
+
 	smp-sram@1ff80 {
 		compatible = "amlogic,meson8-smp-sram";
 		reg = <0x1ff80 0x8>;
@@ -462,11 +775,15 @@
 		/* only the upper two bytes are relevant */
 		reg = <0x1f4 0x4>;
 	};
+
+	cvbs_trimming: calib@1f8 {
+		reg = <0x1f8 0x2>;
+	};
 };
 
 &ethmac {
-	clocks = <&clkc CLKID_ETH>;
-	clock-names = "stmmaceth";
+	clocks = <&clkc CLKID_ETH>, <&clkc CLKID_ETH_CLK>;
+	clock-names = "stmmaceth", "ethernet";
 
 	power-domains = <&pwrc PWRC_MESON8_ETHERNET_MEM_ID>;
 };
@@ -483,6 +800,12 @@
 		clock-names = "xtal", "ddr_pll";
 		#clock-cells = <1>;
 		#reset-cells = <1>;
+	};
+
+	hdmi_tx_phy: phy {
+		compatible = "amlogic,meson8-hdmi-tx-phy";
+		clocks = <&clkc CLKID_HDMI_PLL_HDMI_OUT>;
+		#phy-cells = <0>;
 	};
 
 	pwrc: power-controller {
@@ -582,6 +905,13 @@
 	clock-names = "clkin0", "clkin1", "clkin2", "clkin3", "pclk";
 };
 
+&secbus {
+	secbus2: system-controller@4000 {
+		compatible = "amlogic,meson8-secbus2", "syscon";
+		reg = <0x4000 0x2000>;
+	};
+};
+
 &sdio {
 	compatible = "amlogic,meson8-sdio", "amlogic,meson-mx-sdio";
 	clocks = <&clkc CLKID_SDIO>, <&clkc CLKID_CLK81>;
@@ -598,27 +928,27 @@
 };
 
 &uart_AO {
-	compatible = "amlogic,meson8-uart", "amlogic,meson-ao-uart";
-	clocks = <&xtal>, <&clkc CLKID_CLK81>, <&clkc CLKID_CLK81>;
-	clock-names = "xtal", "pclk", "baud";
+	compatible = "amlogic,meson8-uart", "amlogic,meson-uart";
+	clocks = <&clkc CLKID_CLK81>, <&xtal>, <&clkc CLKID_CLK81>;
+	clock-names = "baud", "xtal", "pclk";
 };
 
 &uart_A {
-	compatible = "amlogic,meson8-uart";
-	clocks = <&xtal>, <&clkc CLKID_UART0>, <&clkc CLKID_CLK81>;
-	clock-names = "xtal", "pclk", "baud";
+	compatible = "amlogic,meson8-uart", "amlogic,meson-uart";
+	clocks = <&clkc CLKID_CLK81>, <&xtal>, <&clkc CLKID_UART0>;
+	clock-names = "baud", "xtal", "pclk";
 };
 
 &uart_B {
-	compatible = "amlogic,meson8-uart";
-	clocks = <&xtal>, <&clkc CLKID_UART1>, <&clkc CLKID_CLK81>;
-	clock-names = "xtal", "pclk", "baud";
+	compatible = "amlogic,meson8-uart", "amlogic,meson-uart";
+	clocks = <&clkc CLKID_CLK81>, <&xtal>, <&clkc CLKID_UART1>;
+	clock-names = "baud", "xtal", "pclk";
 };
 
 &uart_C {
-	compatible = "amlogic,meson8-uart";
-	clocks = <&xtal>, <&clkc CLKID_UART2>, <&clkc CLKID_CLK81>;
-	clock-names = "xtal", "pclk", "baud";
+	compatible = "amlogic,meson8-uart", "amlogic,meson-uart";
+	clocks = <&clkc CLKID_CLK81>, <&xtal>, <&clkc CLKID_UART2>;
+	clock-names = "baud", "xtal", "pclk";
 };
 
 &usb0 {

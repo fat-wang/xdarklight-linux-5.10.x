@@ -9,7 +9,9 @@
  */
 
 #include <linux/component.h>
+#include <linux/mfd/syscon.h>
 #include <linux/module.h>
+#include <linux/nvmem-consumer.h>
 #include <linux/of_graph.h>
 #include <linux/sys_soc.h>
 #include <linux/platform_device.h>
@@ -90,7 +92,7 @@ static int meson_dumb_create(struct drm_file *file, struct drm_device *dev,
 
 DEFINE_DRM_GEM_CMA_FOPS(fops);
 
-static struct drm_driver meson_driver = {
+static const struct drm_driver meson_driver = {
 	.driver_features	= DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC,
 
 	/* IRQ */
@@ -116,11 +118,8 @@ static bool meson_vpu_has_available_connectors(struct device *dev)
 	for_each_endpoint_of_node(dev->of_node, ep) {
 		/* If the endpoint node exists, consider it enabled */
 		remote = of_graph_get_remote_port(ep);
-		if (remote) {
-			of_node_put(remote);
-			of_node_put(ep);
+		if (remote)
 			return true;
-		}
 	}
 
 	return false;
@@ -135,28 +134,132 @@ static struct regmap_config meson_regmap_config = {
 
 static void meson_vpu_init(struct meson_drm *priv)
 {
-	u32 value;
+	if (meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8) ||
+	    meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8B) ||
+	    meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8M2)) {
+		writel(0x0, priv->io_base + _REG(VPU_MEM_PD_REG0));
+		writel(0x0, priv->io_base + _REG(VPU_MEM_PD_REG1));
+	} else {
+		u32 value;
 
-	/*
-	 * Slave dc0 and dc5 connected to master port 1.
-	 * By default other slaves are connected to master port 0.
-	 */
-	value = VPU_RDARB_SLAVE_TO_MASTER_PORT(0, 1) |
-		VPU_RDARB_SLAVE_TO_MASTER_PORT(5, 1);
-	writel_relaxed(value, priv->io_base + _REG(VPU_RDARB_MODE_L1C1));
+		/*
+		* Slave dc0 and dc5 connected to master port 1.
+		* By default other slaves are connected to master port 0.
+		*/
+		value = VPU_RDARB_SLAVE_TO_MASTER_PORT(0, 1) |
+			VPU_RDARB_SLAVE_TO_MASTER_PORT(5, 1);
+		writel_relaxed(value,
+			       priv->io_base + _REG(VPU_RDARB_MODE_L1C1));
 
-	/* Slave dc0 connected to master port 1 */
-	value = VPU_RDARB_SLAVE_TO_MASTER_PORT(0, 1);
-	writel_relaxed(value, priv->io_base + _REG(VPU_RDARB_MODE_L1C2));
+		/* Slave dc0 connected to master port 1 */
+		value = VPU_RDARB_SLAVE_TO_MASTER_PORT(0, 1);
+		writel_relaxed(value,
+			       priv->io_base + _REG(VPU_RDARB_MODE_L1C2));
 
-	/* Slave dc4 and dc7 connected to master port 1 */
-	value = VPU_RDARB_SLAVE_TO_MASTER_PORT(4, 1) |
-		VPU_RDARB_SLAVE_TO_MASTER_PORT(7, 1);
-	writel_relaxed(value, priv->io_base + _REG(VPU_RDARB_MODE_L2C1));
+		/* Slave dc4 and dc7 connected to master port 1 */
+		value = VPU_RDARB_SLAVE_TO_MASTER_PORT(4, 1) |
+			VPU_RDARB_SLAVE_TO_MASTER_PORT(7, 1);
+		writel_relaxed(value,
+			       priv->io_base + _REG(VPU_RDARB_MODE_L2C1));
 
-	/* Slave dc1 connected to master port 1 */
-	value = VPU_RDARB_SLAVE_TO_MASTER_PORT(1, 1);
-	writel_relaxed(value, priv->io_base + _REG(VPU_WRARB_MODE_L2C1));
+		/* Slave dc1 connected to master port 1 */
+		value = VPU_RDARB_SLAVE_TO_MASTER_PORT(1, 1);
+		writel_relaxed(value,
+			       priv->io_base + _REG(VPU_WRARB_MODE_L2C1));
+	}
+}
+
+static int meson_video_clock_init(struct meson_drm *priv)
+{
+	int i, ret;
+
+	if (!meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8) &&
+	    !meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8B) &&
+	    !meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8M2))
+		return 0;
+
+	for (i = 0; i < ARRAY_SIZE(priv->vid_pll_resets); i++) {
+		ret = reset_control_deassert(priv->vid_pll_resets[i]);
+		if (ret)
+			goto assert_resets;
+	}
+
+	ret = clk_bulk_prepare_enable(VPU_VID_CLK_NUM, priv->vid_clks);
+	if (ret)
+		goto assert_resets;
+
+	ret = clk_rate_exclusive_get(priv->vid_clks[VPU_VID_CLK_TMDS].clk);
+	if (ret)
+		goto disable_clks;
+
+	ret = clk_bulk_prepare_enable(VPU_INTR_CLK_NUM, priv->intr_clks);
+	if (ret)
+		goto put_exclusive_clk;
+
+	return 0;
+
+put_exclusive_clk:
+	clk_rate_exclusive_put(priv->vid_clks[VPU_VID_CLK_TMDS].clk);
+assert_resets:
+	for (; i > 0; i++)
+		reset_control_assert(priv->vid_pll_resets[i - 1]);
+disable_clks:
+	clk_bulk_disable_unprepare(VPU_VID_CLK_NUM, priv->vid_clks);
+
+	return ret;
+}
+
+static void meson_video_clock_exit(struct meson_drm *priv)
+{
+	unsigned int i;
+
+	if (!meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8) &&
+	    !meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8B) &&
+	    !meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8M2))
+		return;
+
+	clk_bulk_disable_unprepare(VPU_INTR_CLK_NUM, priv->intr_clks);
+
+	clk_rate_exclusive_put(priv->clk_venc);
+	clk_rate_exclusive_put(priv->vid_clks[VPU_VID_CLK_TMDS].clk);
+
+	clk_bulk_disable_unprepare(VPU_VID_CLK_NUM, priv->vid_clks);
+
+	for (i = 0; i < ARRAY_SIZE(priv->vid_pll_resets); i++)
+		reset_control_assert(priv->vid_pll_resets[i]);
+}
+
+static int meson_cvbs_trimming_init(struct meson_drm *priv)
+{
+	struct nvmem_cell *cell;
+	u8 *trimming;
+	size_t len;
+
+	if (meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8) ||
+	    meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8B) ||
+	    meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8M2)) {
+		cell = devm_nvmem_cell_get(priv->dev, "cvbs_trimming");
+		if (IS_ERR(cell))
+			return PTR_ERR(cell);
+
+		trimming = nvmem_cell_read(cell, &len);
+		if (IS_ERR(trimming))
+			return PTR_ERR(trimming);
+
+		if (len != 2)
+			return -EINVAL;
+
+		if ((trimming[1] & 0xf0) == 0xa0 ||
+		    (trimming[1] & 0xf0) == 0x40 ||
+		    (trimming[1] & 0xc0) == 0x80)
+			priv->cvbs.cntl1 = trimming[0] & 0x7;
+		else
+			priv->cvbs.cntl1 = 0x0;
+	} else {
+		priv->cvbs.cntl1 = 0x0;
+	}
+
+	return 0;
 }
 
 static void meson_remove_framebuffers(void)
@@ -176,12 +279,44 @@ static void meson_remove_framebuffers(void)
 	kfree(ap);
 }
 
+static void meson_fbdev_setup(struct meson_drm *priv)
+{
+	unsigned int preferred_bpp;
+
+	/*
+	 * All SoC generations before GXBB don't have a way to configure the
+	 * alpha value for DRM_FORMAT_XRGB8888 and DRM_FORMAT_XBGR8888 with
+	 * 32-bit but missing alpha ??? TODO: better explanation here.
+	 * Use 24-bit to get a working framebuffer console. Applications that
+	 * can do better (for example: kmscube) will switch to a better format
+	 * like DRM_FORMAT_XRGB8888 while passing a sane alpha value.
+	 */
+	if (meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8) ||
+	    meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8B) ||
+	    meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8M2))
+		preferred_bpp = 24;
+	else
+		preferred_bpp = 32;
+
+	drm_fbdev_generic_setup(priv->drm, preferred_bpp);
+}
+
 struct meson_drm_soc_attr {
 	struct meson_drm_soc_limits limits;
 	const struct soc_device_attribute *attrs;
 };
 
 static const struct meson_drm_soc_attr meson_drm_soc_attrs[] = {
+	/* The maximum frequency of HDMI PLL on Meson8/8b/8m2 is ~3GHz */
+	{
+		.limits = {
+			.max_hdmi_phy_freq = 2976000,
+		},
+		.attrs = (const struct soc_device_attribute []) {
+			{ .soc_id = "Meson8*", },
+			{ /* sentinel */ },
+		}
+	},
 	/* S805X/S805Y HDMI PLL won't lock for HDMI PHY freq > 1,65GHz */
 	{
 		.limits = {
@@ -229,6 +364,51 @@ static int meson_drv_bind_master(struct device *dev, bool has_components)
 	priv->compat = match->compat;
 	priv->afbcd.ops = match->afbcd_ops;
 
+	if (meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8) ||
+	    meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8B) ||
+	    meson_vpu_is_compatible(priv, VPU_COMPATIBLE_M8M2)) {
+		priv->vid_pll_resets[0] = devm_reset_control_get_exclusive(dev, "vid_pll_pre");
+		if (IS_ERR(priv->vid_pll_resets[0]))
+			return PTR_ERR(priv->vid_pll_resets[0]);
+
+		priv->vid_pll_resets[1] = devm_reset_control_get_exclusive(dev, "vid_pll_post");
+		if (IS_ERR(priv->vid_pll_resets[1]))
+			return PTR_ERR(priv->vid_pll_resets[1]);
+
+		priv->vid_pll_resets[2] = devm_reset_control_get_exclusive(dev, "vid_pll_soft_pre");
+		if (IS_ERR(priv->vid_pll_resets[2]))
+			return PTR_ERR(priv->vid_pll_resets[2]);
+
+		priv->vid_pll_resets[3] = devm_reset_control_get_exclusive(dev, "vid_pll_soft_post");
+		if (IS_ERR(priv->vid_pll_resets[3]))
+			return PTR_ERR(priv->vid_pll_resets[3]);
+
+		priv->intr_clks[VPU_INTR_CLK_VPU].id = "vpu_intr";
+		priv->intr_clks[VPU_INTR_CLK_HDMI_INTR_SYNC].id = "hdmi_intr_sync";
+		priv->intr_clks[VPU_INTR_CLK_VENCI].id = "venci_int";
+
+		ret = devm_clk_bulk_get(dev, VPU_INTR_CLK_NUM, priv->intr_clks);
+		if (ret)
+			return ret;
+
+		priv->vid_clks[VPU_VID_CLK_TMDS].id = "tmds";
+		priv->vid_clks[VPU_VID_CLK_HDMI_TX_PIXEL].id = "hdmi_tx_pixel";
+		priv->vid_clks[VPU_VID_CLK_CTS_ENCP].id = "cts_encp";
+		priv->vid_clks[VPU_VID_CLK_CTS_ENCI].id = "cts_enci";
+		priv->vid_clks[VPU_VID_CLK_CTS_ENCT].id = "cts_enct";
+		priv->vid_clks[VPU_VID_CLK_CTS_ENCL].id = "cts_encl";
+		priv->vid_clks[VPU_VID_CLK_CTS_VDAC0].id = "cts_vdac0";
+
+		ret = devm_clk_bulk_get(dev, VPU_VID_CLK_NUM, priv->vid_clks);
+		if (ret)
+			return ret;
+
+		ret = meson_video_clock_init(priv);
+		if (ret)
+			goto free_drm;
+		// TODO: error handling below
+	}
+
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "vpu");
 	regs = devm_ioremap_resource(dev, res);
 	if (IS_ERR(regs)) {
@@ -238,24 +418,32 @@ static int meson_drv_bind_master(struct device *dev, bool has_components)
 
 	priv->io_base = regs;
 
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "hhi");
-	if (!res) {
-		ret = -EINVAL;
-		goto free_drm;
-	}
-	/* Simply ioremap since it may be a shared register zone */
-	regs = devm_ioremap(dev, res->start, resource_size(res));
-	if (!regs) {
-		ret = -EADDRNOTAVAIL;
-		goto free_drm;
-	}
-
-	priv->hhi = devm_regmap_init_mmio(dev, regs,
-					  &meson_regmap_config);
+	priv->hhi = syscon_regmap_lookup_by_phandle(pdev->dev.of_node,
+						    "amlogic,hhi-sysctrl");
 	if (IS_ERR(priv->hhi)) {
-		dev_err(&pdev->dev, "Couldn't create the HHI regmap\n");
-		ret = PTR_ERR(priv->hhi);
-		goto free_drm;
+		dev_dbg(dev, "Falling back to parsing the 'hhi' registers\n");
+
+		res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "hhi");
+		if (!res) {
+			ret = -EINVAL;
+			goto free_drm;
+		}
+
+		/* Simply ioremap since it may be a shared register zone */
+		regs = devm_ioremap(dev, res->start, resource_size(res));
+		if (!regs) {
+			ret = -EADDRNOTAVAIL;
+			goto free_drm;
+		}
+
+		priv->hhi = devm_regmap_init_mmio(dev, regs,
+						  &meson_regmap_config);
+		if (IS_ERR(priv->hhi)) {
+			dev_err(&pdev->dev,
+				"Couldn't create the HHI regmap\n");
+			ret = PTR_ERR(priv->hhi);
+			goto free_drm;
+		}
 	}
 
 	priv->canvas = meson_canvas_get(dev);
@@ -285,6 +473,10 @@ static int meson_drv_bind_master(struct device *dev, bool has_components)
 		meson_canvas_free(priv->canvas, priv->canvas_id_vd1_1);
 		goto free_drm;
 	}
+
+	ret = meson_cvbs_trimming_init(priv);
+	if (ret)
+		goto free_drm;
 
 	priv->vsync_irq = platform_get_irq(pdev, 0);
 
@@ -320,38 +512,38 @@ static int meson_drv_bind_master(struct device *dev, bool has_components)
 	if (priv->afbcd.ops) {
 		ret = priv->afbcd.ops->init(priv);
 		if (ret)
-			goto free_drm;
+			return ret;
 	}
 
 	/* Encoder Initialization */
 
 	ret = meson_venc_cvbs_create(priv);
 	if (ret)
-		goto exit_afbcd;
+		goto free_drm;
 
 	if (has_components) {
 		ret = component_bind_all(drm->dev, drm);
 		if (ret) {
 			dev_err(drm->dev, "Couldn't bind all components\n");
-			goto exit_afbcd;
+			goto free_drm;
 		}
 	}
 
 	ret = meson_plane_create(priv);
 	if (ret)
-		goto unbind_all;
+		goto free_drm;
 
 	ret = meson_overlay_create(priv);
 	if (ret)
-		goto unbind_all;
+		goto free_drm;
 
 	ret = meson_crtc_create(priv);
 	if (ret)
-		goto unbind_all;
+		goto free_drm;
 
 	ret = drm_irq_install(drm, priv->vsync_irq);
 	if (ret)
-		goto unbind_all;
+		goto free_drm;
 
 	drm_mode_config_reset(drm);
 
@@ -363,18 +555,12 @@ static int meson_drv_bind_master(struct device *dev, bool has_components)
 	if (ret)
 		goto uninstall_irq;
 
-	drm_fbdev_generic_setup(drm, 32);
+	meson_fbdev_setup(priv);
 
 	return 0;
 
 uninstall_irq:
 	drm_irq_uninstall(drm);
-unbind_all:
-	if (has_components)
-		component_unbind_all(drm->dev, drm);
-exit_afbcd:
-	if (priv->afbcd.ops)
-		priv->afbcd.ops->exit(priv);
 free_drm:
 	drm_dev_put(drm);
 
@@ -405,8 +591,12 @@ static void meson_drv_unbind(struct device *dev)
 	drm_irq_uninstall(drm);
 	drm_dev_put(drm);
 
-	if (priv->afbcd.ops)
-		priv->afbcd.ops->exit(priv);
+	if (priv->afbcd.ops) {
+		priv->afbcd.ops->reset(priv);
+		meson_rdma_free(priv);
+	}
+
+	meson_video_clock_exit(priv);
 }
 
 static const struct component_master_ops meson_drv_master_ops = {
@@ -421,6 +611,8 @@ static int __maybe_unused meson_drv_pm_suspend(struct device *dev)
 	if (!priv)
 		return 0;
 
+	// TODO: video clock suspend
+
 	return drm_mode_config_helper_suspend(priv->drm);
 }
 
@@ -431,6 +623,7 @@ static int __maybe_unused meson_drv_pm_resume(struct device *dev)
 	if (!priv)
 		return 0;
 
+	meson_video_clock_init(priv);
 	meson_vpu_init(priv);
 	meson_venc_init(priv);
 	meson_vpp_init(priv);
@@ -489,17 +682,6 @@ static int meson_probe_remote(struct platform_device *pdev,
 	return count;
 }
 
-static void meson_drv_shutdown(struct platform_device *pdev)
-{
-	struct meson_drm *priv = dev_get_drvdata(&pdev->dev);
-
-	if (!priv)
-		return;
-
-	drm_kms_helper_poll_fini(priv->drm);
-	drm_atomic_helper_shutdown(priv->drm);
-}
-
 static int meson_drv_probe(struct platform_device *pdev)
 {
 	struct component_match *match = NULL;
@@ -534,12 +716,17 @@ static int meson_drv_probe(struct platform_device *pdev)
 	return 0;
 };
 
-static int meson_drv_remove(struct platform_device *pdev)
-{
-	component_master_del(&pdev->dev, &meson_drv_master_ops);
+static struct meson_drm_match_data meson_drm_m8_data = {
+	.compat = VPU_COMPATIBLE_M8,
+};
 
-	return 0;
-}
+static struct meson_drm_match_data meson_drm_m8b_data = {
+	.compat = VPU_COMPATIBLE_M8B,
+};
+
+static struct meson_drm_match_data meson_drm_m8m2_data = {
+	.compat = VPU_COMPATIBLE_M8M2,
+};
 
 static struct meson_drm_match_data meson_drm_gxbb_data = {
 	.compat = VPU_COMPATIBLE_GXBB,
@@ -560,6 +747,12 @@ static struct meson_drm_match_data meson_drm_g12a_data = {
 };
 
 static const struct of_device_id dt_match[] = {
+	{ .compatible = "amlogic,meson8-vpu",
+	  .data       = (void *)&meson_drm_m8_data },
+	{ .compatible = "amlogic,meson8b-vpu",
+	  .data       = (void *)&meson_drm_m8b_data },
+	{ .compatible = "amlogic,meson8m2-vpu",
+	  .data       = (void *)&meson_drm_m8m2_data },
 	{ .compatible = "amlogic,meson-gxbb-vpu",
 	  .data       = (void *)&meson_drm_gxbb_data },
 	{ .compatible = "amlogic,meson-gxl-vpu",
@@ -578,8 +771,6 @@ static const struct dev_pm_ops meson_drv_pm_ops = {
 
 static struct platform_driver meson_drm_platform_driver = {
 	.probe      = meson_drv_probe,
-	.remove     = meson_drv_remove,
-	.shutdown   = meson_drv_shutdown,
 	.driver     = {
 		.name	= "meson-drm",
 		.of_match_table = dt_match,

@@ -70,9 +70,15 @@
 		timeout-ms = <20000>;
 	};
 
-	iio-hwmon {
-		compatible = "iio-hwmon";
-		io-channels = <&saradc 8>;
+	hdmi-connector {
+		compatible = "hdmi-connector";
+		type = "a";
+
+		port {
+			hdmi_connector_in: endpoint {
+				remote-endpoint = <&hdmi_tx_tmds_out>;
+			};
+		};
 	};
 
 	leds {
@@ -99,6 +105,43 @@
 		clock-frequency = <32768>;
 		clock-output-names = "RTC32K";
 		#clock-cells = <0>;
+	};
+
+	sound {
+		compatible = "amlogic,gx-sound-card";
+		model = "M8B-EC100";
+		audio-routing = "I2S Encoder Playback", "I2S FIFO Playback";
+
+		assigned-clocks = <&clkc CLKID_MPLL0>,
+				  <&clkc CLKID_MPLL1>,
+				  <&clkc CLKID_MPLL2>;
+		assigned-clock-rates = <270950400>,
+				       <294912000>,
+				       <393216000>;
+
+		dai-link-0 {
+			sound-dai = <&aiu AIU_CPU CPU_I2S_FIFO>;
+		};
+
+		dai-link-1 {
+			sound-dai = <&aiu AIU_CPU CPU_I2S_ENCODER>;
+			dai-format = "i2s";
+			mclk-fs = <256>;
+
+			codec-0 {
+				sound-dai = <&rt5640>;
+			};
+		};
+	};
+
+	tv-connector {
+		compatible = "composite-video-connector";
+
+		port {
+			cvbs_connector_in: endpoint {
+				remote-endpoint = <&cvbs_vdac_out>;
+			};
+		};
 	};
 
 	usb_vbus: regulator-usb-vbus {
@@ -153,7 +196,7 @@
 		regulator-min-microvolt = <860000>;
 		regulator-max-microvolt = <1140000>;
 
-		pwm-supply = <&vcc_5v>;
+		vin-supply = <&vcc_5v>;
 
 		pwms = <&pwm_cd 0 1148 0>;
 		pwm-dutycycle-range = <100 0>;
@@ -237,7 +280,7 @@
 		regulator-min-microvolt = <860000>;
 		regulator-max-microvolt = <1140000>;
 
-		pwm-supply = <&vcc_5v>;
+		vin-supply = <&vcc_5v>;
 
 		pwms = <&pwm_cd 1 1148 0>;
 		pwm-dutycycle-range = <100 0>;
@@ -247,8 +290,22 @@
 	};
 };
 
+&aiu {
+	status = "okay";
+
+	pinctrl-0 = <&i2s_am_clk_pins>, <&i2s_out_ao_clk_pins>,
+		    <&i2s_out_lr_clk_pins>, <&i2s_out_ch01_ao_pins>;
+	pinctrl-names = "default";
+};
+
 &cpu0 {
 	cpu-supply = <&vcck>;
+};
+
+&cvbs_vdac_port {
+	cvbs_vdac_out: endpoint {
+		remote-endpoint = <&cvbs_connector_in>;
+	};
 };
 
 &ethmac {
@@ -281,6 +338,18 @@
 	};
 };
 
+&hdmi_tx {
+	status = "okay";
+	pinctrl-0 = <&hdmi_hpd_pins>, <&hdmi_i2c_pins>;
+	pinctrl-names = "default";
+};
+
+&hdmi_tx_tmds_port {
+	hdmi_tx_tmds_out: endpoint {
+		remote-endpoint = <&hdmi_connector_in>;
+	};
+};
+
 &i2c_A {
 	status = "okay";
 	pinctrl-0 = <&i2c_a_pins>;
@@ -288,9 +357,15 @@
 
 	rt5640: codec@1c {
 		compatible = "realtek,rt5640";
+
 		reg = <0x1c>;
+
+		#sound-dai-cells = <0>;
+
 		interrupt-parent = <&gpio_intc>;
 		interrupts = <13 IRQ_TYPE_EDGE_BOTH>; /* GPIOAO_13 */
+
+		realtek,ldo1-en-gpios = <&gpio GPIO_BSD_EN GPIO_ACTIVE_LOW>;
 		realtek,in1-differential;
 	};
 };
@@ -355,7 +430,7 @@
 			  "I2S_IN", "SLP_S1_N",
 			  "TCK", "TMS", "TDI", "TDO",
 			  "HDMI_CEC", "5640_IRQ",
-			  "MUTE", "S805_TEST#";
+			  "S805_TEST#";
 };
 
 &gpio {
@@ -395,7 +470,9 @@
 			  "RMII_RXD1", "RMII_RXD0", "RMII_CRS_DV",
 			  "RMII_50M_IN", "GPIODIF_4", "GPIODIF_5",
 			  "RMII_TXEN", "CPUETH_25MOUT", "RMII_MDC",
-			  "RMII_MDIO";
+			  "RMII_MDIO",
+			  /* BSD_EN */
+			  "MUTE";
 };
 
 &pwm_cd {

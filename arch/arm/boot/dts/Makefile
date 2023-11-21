@@ -349,6 +349,7 @@ dtb-$(CONFIG_MACH_MESON8) += \
 	meson8b-mxq.dtb \
 	meson8b-odroidc1.dtb \
 	meson8b-onecloud.dtb \
+	meson8b-onecloud-oc.dtb \
 	meson8b-onecloud-otg.dtb \
 	meson8b-onecloud-role-switch.dtb \
 	meson8m2-mxiii.dtb \

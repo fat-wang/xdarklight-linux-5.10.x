@@ -13,5 +13,6 @@
 	opp-1632000000 {
 		opp-hz = /bits/ 64 <1632000000>;
 		opp-microvolt = <1140000>;
+		status = "okay";
 	};
 };

@@ -60,8 +60,8 @@
 			label = "onecloud:red:alive";
 			gpios = <&gpio_ao GPIOAO_2 GPIO_ACTIVE_HIGH>;
 
-			default-state = "on";
-			linux,default-trigger = "mmc1";
+			default-state = "off";
+			linux,default-trigger = "mmc";
 		};
 
 		green {

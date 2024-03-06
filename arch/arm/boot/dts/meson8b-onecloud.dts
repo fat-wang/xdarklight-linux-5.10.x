@@ -431,11 +431,11 @@
 			interrupts = <17 IRQ_TYPE_LEVEL_LOW>; // GPIOH 3
 
 			/* absent */
-			realtek,led-0-mode = <0>;
+			realtek,led-0-mode = <(RTL8211F_LED_LINK_10 | RTL8211F_LED_LINK_100 |RTL8211F_LED_ACTIVITY | RTL8211F_LED_EEE)>;
 			/* green */
 			realtek,led-1-mode = <(RTL8211F_LED_LINK_10 | RTL8211F_LED_LINK_100 | RTL8211F_LED_LINK_1000 | RTL8211F_LED_EEE)>;
 			/* amber */
-			realtek,led-2-mode = <(RTL8211F_LED_LINK_10 | RTL8211F_LED_LINK_100 |RTL8211F_LED_ACTIVITY | RTL8211F_LED_EEE)>;
+			realtek,led-2-mode = <(RTL8211F_LED_LINK_1000 |RTL8211F_LED_ACTIVITY | RTL8211F_LED_EEE)>;
 		};
 	};
 };

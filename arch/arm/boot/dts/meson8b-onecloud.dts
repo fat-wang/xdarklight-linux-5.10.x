@@ -207,7 +207,8 @@
 		pwms = <&pwm_cd 1 12001 0>;	// PWM_D
 		pwm-dutycycle-range = <10 0>;
 		regulator-min-microvolt = <860000>;
-		regulator-max-microvolt = <1140000>;
+		// regulator-max-microvolt = <1140000>;
+		regulator-max-microvolt = <1500000>;
 
 		pwm-supply = <&p12v>;
 

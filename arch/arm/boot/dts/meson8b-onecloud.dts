@@ -69,8 +69,8 @@
 			gpios = <&gpio_ao GPIOAO_3 GPIO_ACTIVE_HIGH>;
 
 			default-state = "off";
-			linux,default-trigger = "mmc0";
-			// linux,default-trigger = "usb-host";
+			// linux,default-trigger = "mmc0";
+			linux,default-trigger = "usb-host";
 		};
 
 		blue {
